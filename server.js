@@ -8,9 +8,6 @@ app.use(express.json());
 
 const PLAID_ENV = process.env.PLAID_ENV || 'sandbox';
 
-console.log('PLAID_ENV:', PLAID_ENV);
-console.log('PlaidEnvironments:', PlaidEnvironments);
-
 const configuration = new Configuration({
   basePath: PlaidEnvironments[PLAID_ENV],
   baseOptions: {
@@ -23,12 +20,10 @@ const configuration = new Configuration({
 
 const plaidClient = new PlaidApi(configuration);
 
-// Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', env: PLAID_ENV, url: PLAID_BASE_URL });
+  res.json({ status: 'ok', env: PLAID_ENV, basePath: PlaidEnvironments[PLAID_ENV] });
 });
 
-// Create link token
 app.post('/api/create_link_token', async (req, res) => {
   try {
     const response = await plaidClient.linkTokenCreate({
@@ -41,11 +36,10 @@ app.post('/api/create_link_token', async (req, res) => {
     res.json(response.data);
   } catch (e) {
     console.error('create_link_token error:', e.response?.data || e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: e.message, details: e.response?.data });
   }
 });
 
-// Exchange public token for access token
 app.post('/api/exchange_token', async (req, res) => {
   try {
     const { public_token } = req.body;
@@ -57,20 +51,16 @@ app.post('/api/exchange_token', async (req, res) => {
   }
 });
 
-// Get transactions (last 90 days)
 app.post('/api/transactions', async (req, res) => {
   try {
     const { access_token } = req.body;
     const now = new Date();
     const start = new Date();
     start.setDate(start.getDate() - 90);
-    const start_date = start.toISOString().split('T')[0];
-    const end_date = now.toISOString().split('T')[0];
-
     const response = await plaidClient.transactionsGet({
       access_token,
-      start_date,
-      end_date,
+      start_date: start.toISOString().split('T')[0],
+      end_date: now.toISOString().split('T')[0],
       options: { count: 500, offset: 0 },
     });
     res.json(response.data);
@@ -80,7 +70,6 @@ app.post('/api/transactions', async (req, res) => {
   }
 });
 
-// Get accounts
 app.post('/api/accounts', async (req, res) => {
   try {
     const { access_token } = req.body;
@@ -96,5 +85,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`FinanceIQ server running on port ${PORT}`);
   console.log(`Plaid environment: ${PLAID_ENV}`);
-  console.log(`Plaid URL: ${PLAID_BASE_URL}`);
+  console.log(`Plaid basePath: ${PlaidEnvironments[PLAID_ENV]}`);
 });
