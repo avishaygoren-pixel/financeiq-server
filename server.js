@@ -1,18 +1,18 @@
 const express = require('express');
 const cors = require('cors');
-const { Configuration, PlaidApi } = require('plaid');
+const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const PLAID_ENV = process.env.PLAID_ENV || 'sandbox';
-const PLAID_BASE_URL = PLAID_ENV === 'development'
-  ? 'https://development.plaid.com'
-  : 'https://sandbox.plaid.com';
+
+console.log('PLAID_ENV:', PLAID_ENV);
+console.log('PlaidEnvironments:', PlaidEnvironments);
 
 const configuration = new Configuration({
-  basePath: PLAID_BASE_URL,
+  basePath: PlaidEnvironments[PLAID_ENV],
   baseOptions: {
     headers: {
       'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
