@@ -41,6 +41,7 @@ app.post('/api/create_link_token', async (req, res) => {
       products: ['transactions'],
       country_codes: ['US'],
       language: 'en',
+redirect_uri: process.env.PLAID_REDIRECT_URI,
     });
     res.json({ link_token: response.data.link_token });
   } catch (e) {
