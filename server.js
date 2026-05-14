@@ -1,11 +1,23 @@
 const express = require('express');
 const cors = require('cors');
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
+const admin = require('firebase-admin');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ── Firebase Admin setup ──────────────────────────────────────────────────────
+admin.initializeApp({
+  credential: admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+  }),
+});
+const db = admin.firestore();
+
+// ── Plaid setup ───────────────────────────────────────────────────────────────
 const PLAID_ENV = process.env.PLAID_ENV || 'sandbox';
 const configuration = new Configuration({
   basePath: PlaidEnvironments[PLAID_ENV],
@@ -18,6 +30,27 @@ const configuration = new Configuration({
 });
 const plaidClient = new PlaidApi(configuration);
 const tokenStore = {};
+
+async function loadTokensFromFirestore() {
+  try {
+    const snap = await db.collection('plaid_tokens').get();
+    snap.forEach(doc => {
+      const { itemId, accessToken } = doc.data();
+      if (itemId && accessToken) tokenStore[itemId] = accessToken;
+    });
+    console.log(`Loaded ${Object.keys(tokenStore).length} tokens from Firestore`);
+  } catch (e) {
+    console.error('Failed to load tokens:', e.message);
+  }
+}
+
+async function saveToken(itemId, accessToken) {
+  try {
+    await db.collection('plaid_tokens').doc(itemId).set({ itemId, accessToken, updatedAt: new Date().toISOString() });
+  } catch (e) {
+    console.error('Failed to save token:', e.message);
+  }
+}
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', env: PLAID_ENV, connectedItems: Object.keys(tokenStore).length });
@@ -72,6 +105,7 @@ app.post('/api/exchange_token', async (req, res) => {
     const itemId = response.data.item_id;
 
     tokenStore[itemId] = accessToken;
+    await saveToken(itemId, accessToken);
     console.log(`Connected item: ${itemId} (total: ${Object.keys(tokenStore).length})`);
 
     const accResponse = await plaidClient.accountsGet({ access_token: accessToken });
@@ -102,8 +136,12 @@ app.get('/api/accounts', async (req, res) => {
   try {
     const allAccounts = [];
     for (const [itemId, accessToken] of Object.entries(tokenStore)) {
-      const response = await plaidClient.accountsGet({ access_token: accessToken });
-      allAccounts.push(...response.data.accounts);
+      try {
+        const response = await plaidClient.accountsGet({ access_token: accessToken });
+        allAccounts.push(...response.data.accounts);
+      } catch (e) {
+        console.error(`accounts error for ${itemId}:`, e.response?.data || e.message);
+      }
     }
     res.json({ accounts: allAccounts });
   } catch (e) {
@@ -139,7 +177,9 @@ app.get('/api/transactions', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`FinanceIQ server running on port ${PORT}`);
-  console.log(`Plaid environment: ${PLAID_ENV}`);
+loadTokensFromFirestore().then(() => {
+  app.listen(PORT, () => {
+    console.log(`FinanceIQ server running on port ${PORT}`);
+    console.log(`Plaid environment: ${PLAID_ENV}`);
+  });
 });
